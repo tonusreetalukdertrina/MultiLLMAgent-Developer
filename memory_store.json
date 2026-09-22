@@ -8,5 +8,15 @@
     "timestamp": "2026-09-22T11:13:12.486917+00:00",
     "question": "do you remember what i asked you few minutes back",
     "final_answer": "### Answer\n\nYes! Based on the context provided in your prompt, you asked **\"how does Redis work?\"** (where we covered its in-memory nature, single-threaded event loop, and I/O multiplexing architecture).\n\n---\n\n### Key Note on How Context Works\n* **Where experts agreed:** LLM models are stateless by default and do not carry over memory across separate API calls on their own. However, because the conversation history was passed along as context in this prompt, the previous question is visible.\n\n---\n\n### Recommendation & Next Steps\nIf you'd like to dive deeper into that previous topic, feel free to ask a follow-up about:\n* **Redis Persistence** (RDB snapshots vs. AOF logs)\n* **Redis Clustering & Replication** (sentinels, primary-replica setups)\n* **Performance Tuning & Cache Eviction Policies** (LRU, LFU, TTLs) \n\nOr, let me know if you want to explore something entirely new!"
+  },
+  {
+    "timestamp": "2026-09-22T11:57:14.892755+00:00",
+    "question": "Should we store user data in the browser or in the database?",
+    "final_answer": "):\n        *   Pros:"
+  },
+  {
+    "timestamp": "2026-09-22T12:02:25.711672+00:00",
+    "question": "how to implement prisma in nextjs",
+    "final_answer": "Prisma Client singleton** pattern (`lib/"
   }
 ]

@@ -1,13 +1,3 @@
-"""
-cli.py -- Interactive terminal loop for devqa.py.
-
-Run this in a real terminal (e.g. a GitHub Codespace) where input() works
-normally. Do NOT run this in a Colab/Jupyter cell -- use devqa.ask()
-directly from a cell instead (see devqa.py's docstring).
-
-Run: python cli.py
-"""
-
 from devqa import ask, MemoryStore, check_env
 
 if __name__ == "__main__":
@@ -21,6 +11,9 @@ if __name__ == "__main__":
         if not q:
             continue
         try:
+            print("─" * 60)
+            print("MEETING STARTING")
+            print("─" * 60 + "\n")
             answer = ask(q, memory)
             print("\n" + "=" * 60)
             print("FINAL ANSWER")

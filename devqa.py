@@ -20,26 +20,56 @@ def check_env():
             f"Set them before calling ask() -- see the module docstring for how."
         )
 
-def make_llm_config(provider: str, model: str) -> dict:
+def make_llm_config(provider: str, model: str, max_tokens: int = 600) -> dict:
     if provider == "groq":
         return {"config_list": [{
             "model": model,
             "api_key": os.environ["GROQ_API_KEY"],
             "api_type": "groq",
+            "max_tokens": max_tokens,
         }]}
     if provider == "google":
         return {"config_list": [{
             "model": model,
             "api_key": os.environ["GOOGLE_API_KEY"],
             "api_type": "google",
+            "max_tokens": max_tokens,
         }]}
     raise ValueError(f"Unknown provider: {provider}")
 
 GROQ_MODEL = "openai/gpt-oss-120b"
-GROQ_SMALL_MODEL = "openai/gpt-oss-120b"
+GROQ_SMALL_MODEL = "openai/gpt-oss-20b"
 GOOGLE_MODEL = "gemini-3.6-flash"
 
+MEETING_STYLE = (
+    "\n\nYou're in a live discussion with other experts, not writing a report. "
+    "Speak like you're actually in the room: address colleagues by name when "
+    "responding to them ('Building on what Backend said...', 'I'd push back on "
+    "that a bit, DBMS...'), and react to what was just said instead of restating "
+    "the whole question from scratch. You can go into real depth -- explain your "
+    "reasoning, walk through a trade-off, include a short code example if it "
+    "helps -- but stay conversational in tone rather than switching into "
+    "formal report mode (avoid markdown tables and section headers here; save "
+    "that structure for the final summary). Roughly one solid paragraph per "
+    "turn is the right length -- enough to actually say something substantive, "
+    "not so much that it reads like documentation."
+)
+
 EXPERT_CONFIG = {
+    "Moderator": {
+        "provider": "groq", "model": GROQ_SMALL_MODEL,
+        "system_message": (
+            "You are chairing a roundtable discussion between software experts. "
+            "Open the meeting by briefly framing the question in one or two sentences "
+            "and inviting the most relevant expert to start. During the discussion, "
+            "if things stall or go in circles, redirect with a short prompt "
+            "('Anyone want to weigh in on the caching side?'). When the discussion "
+            "has covered the key angles, close it with: 'Good discussion -- let's "
+            "wrap up there.' Keep everything you say brief and natural, like a real "
+            "meeting chair, not a formal moderator script."
+        ),
+        "description": "Opens the meeting, keeps discussion on track, and closes it when the key angles are covered.",
+    },
     "Frontend_Expert": {
         "provider": "groq", "model": GROQ_MODEL,
         "system_message": (
@@ -48,7 +78,7 @@ EXPERT_CONFIG = {
             "or research-level concerns, say so explicitly and name which expert should "
             "weigh in next (e.g. 'I'd like the Backend Expert to confirm the API contract "
             "here'). Keep answers concrete and give code where useful."
-        ),
+        ) + MEETING_STYLE,
         "description": "Answers questions about UI, client-side code, browser behavior, and frontend frameworks.",
     },
     "Backend_Expert": {
@@ -58,7 +88,7 @@ EXPERT_CONFIG = {
             "language-specific idioms. If the question touches database design or "
             "query performance, say so explicitly and invite the DBMS Expert to weigh in. "
             "Keep answers concrete and give code where useful."
-        ),
+        ) + MEETING_STYLE,
         "description": "Answers questions about server-side architecture, APIs, auth, and backend performance.",
     },
     "DBMS_Expert": {
@@ -67,7 +97,7 @@ EXPERT_CONFIG = {
             "You are the DBMS Expert: schema design, indexing, query optimization, "
             "normalization, transactions, scaling strategies. Weigh in whenever data "
             "modeling or query performance is relevant, even if not directly addressed."
-        ),
+        ) + MEETING_STYLE,
         "description": "Answers questions about database schema, indexing, query optimization, and data modeling.",
     },
     "Research_Expert": {
@@ -77,7 +107,7 @@ EXPERT_CONFIG = {
             "recent developments in software engineering. Flag clearly when something is "
             "uncertain or actively evolving. Weigh in when a question is genuinely open-ended "
             "or involves choosing between competing approaches."
-        ),
+        ) + MEETING_STYLE,
         "description": "Answers questions about architectural trade-offs, emerging techniques, and open-ended technical decisions.",
     },
     "General_Expert": {
@@ -86,7 +116,7 @@ EXPERT_CONFIG = {
             "You are a Generalist Software Engineer. Answer directly when a question doesn't "
             "clearly belong to frontend, backend, DBMS, or research -- and don't be shy about "
             "saying when nobody else's input has been needed."
-        ),
+        ) + MEETING_STYLE,
         "description": "Answers general software engineering questions that don't clearly fit another expert's specialty.",
     },
 }
@@ -154,6 +184,16 @@ def build_synthesizer() -> autogen.AssistantAgent:
         llm_config=make_llm_config(SYNTHESIZER_MODEL["provider"], SYNTHESIZER_MODEL["model"]),
     )
 
+def meeting_speaker_selection(last_speaker, groupchat):
+    """Moderator always opens and closes; the manager LLM picks freely in between."""
+    if len(groupchat.messages) <= 1:
+        moderator = groupchat.agent_by_name("Moderator")
+        return moderator if moderator else "auto"
+    if len(groupchat.messages) >= MAX_DEBATE_ROUNDS - 1:
+        moderator = groupchat.agent_by_name("Moderator")
+        return moderator if moderator else "auto"
+    return "auto"
+
 def ask(question: str, memory: MemoryStore, verbose: bool = True) -> str:
     check_env()
 
@@ -168,7 +208,7 @@ def ask(question: str, memory: MemoryStore, verbose: bool = True) -> str:
         agents=list(expert_agents.values()) + [user_proxy],
         messages=[],
         max_round=MAX_DEBATE_ROUNDS,
-        speaker_selection_method="auto",  # manager LLM decides who speaks next each turn
+        speaker_selection_method=meeting_speaker_selection,  # manager LLM decides who speaks next each turn
     )
     manager = autogen.GroupChatManager(
         groupchat=groupchat,
