@@ -10,10 +10,15 @@ import random
 
 import autogen
 
+import warnings
+warnings.filterwarnings("ignore", message="Cost calculation")
+logging.getLogger("google_genai.models").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("devqa")
 
-REQUIRED_ENV_VARS = ["GROQ_API_KEY", "GOOGLE_API_KEY"]
+REQUIRED_ENV_VARS = ["GROQ_API_KEY", "GOOGLE_API_KEY", "CEREBRAS_API_KEY", "CUSTOM_API_KEY", "CUSTOM_BASE_URL"]
 
 
 def check_env():
@@ -37,6 +42,8 @@ def with_retry(fn, max_attempts=4, base_delay=2):
             delay = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 1)
             log.warning(f"Transient error (attempt {attempt}/{max_attempts}): {e}. "
                         f"Retrying in {delay:.1f}s...")
+            if attempt == 1:
+                print("  (one of the providers is briefly overloaded — retrying automatically, just a moment...)")
             time.sleep(delay)    
 
 def make_llm_config(provider: str, model: str, max_tokens: int = 600) -> dict:
@@ -54,11 +61,30 @@ def make_llm_config(provider: str, model: str, max_tokens: int = 600) -> dict:
             "api_type": "google",
             "max_tokens": max_tokens,
         }]}
+    if provider == "cerebras":
+        return {"config_list": [{
+            "model": model,
+            "api_key": os.environ["CEREBRAS_API_KEY"],
+            "base_url": "https://api.cerebras.ai/v1",
+            "api_type": "openai",
+            "max_tokens": max_tokens,
+        }]}
+    if provider == "custom":
+        return {"config_list": [{
+            "model": model,
+            "api_key": os.environ["CUSTOM_API_KEY"],
+            "base_url": os.environ["CUSTOM_BASE_URL"],
+            "api_type": "openai",
+            "max_tokens": max_tokens,
+        }]}
     raise ValueError(f"Unknown provider: {provider}")
 
 GROQ_MODEL = "openai/gpt-oss-120b"
 GROQ_SMALL_MODEL = "openai/gpt-oss-20b"
 GOOGLE_MODEL = "gemini-3.6-flash"
+CEREBRAS_MODEL = "gpt-oss-120b" 
+CUSTOM_MODEL = "Ornith-1.5-35B-A3B-APEX-MTP-Quality"        # from Step 2's output
+# CUSTOM_MODEL_ALT = "your-other-available-model"  # uncomment if you want a second option
 
 MEETING_STYLE = (
     "\n\n=== CONVERSATION FORMAT RULES (follow these exactly) ===\n"
@@ -101,7 +127,7 @@ EXPERT_CONFIG = {
         "description": "Answers questions about server-side architecture, APIs, auth, and backend performance.",
     },
     "DBMS_Expert": {
-        "provider": "google", "model": GOOGLE_MODEL,
+        "provider": "groq", "model": GROQ_MODEL,
         "system_message": (
             "You are the DBMS Expert: schema design, indexing, query optimization, "
             "normalization, transactions, scaling strategies. Weigh in whenever data "
@@ -110,7 +136,7 @@ EXPERT_CONFIG = {
         "description": "Answers questions about database schema, indexing, query optimization, and data modeling.",
     },
     "Research_Expert": {
-        "provider": "google", "model": GOOGLE_MODEL,
+        "provider": "groq", "model": GROQ_MODEL,
         "system_message": (
             "You are the R&D Expert: emerging techniques, trade-offs between approaches, "
             "recent developments in software engineering. Flag clearly when something is "
@@ -132,6 +158,7 @@ EXPERT_CONFIG = {
 
 MANAGER_MODEL = {"provider": "groq", "model": GROQ_SMALL_MODEL}
 SYNTHESIZER_MODEL = {"provider": "google", "model": GOOGLE_MODEL}
+SYNTHESIZER_FALLBACK = {"provider": "groq", "model": GROQ_MODEL}
 
 MAX_DEBATE_ROUNDS = 4  # hard cap so a hand-off loop can't run forever
 
@@ -233,13 +260,29 @@ def ask(question: str, memory: MemoryStore, verbose: bool = True) -> str:
     if verbose:
         log.info("Discussion finished -- synthesizing final answer...")
 
-    with_retry(lambda: user_proxy.initiate_chat(
-        synthesizer,
-        message=f"Original question: {question}\n\nFull discussion:\n{transcript}",
-        max_turns=1,
-        silent=True,  # only the final answer needs to print, not this one call
-    ))
-    final_answer = synthesizer.last_message()["content"]
+    try:
+        with_retry(lambda: user_proxy.initiate_chat(
+            synthesizer,
+            message=f"Original question: {question}\n\nFull discussion:\n{transcript}",
+            max_turns=1,
+            silent=True,
+        ))
+        final_answer = synthesizer.last_message()["content"]
+    except Exception as e:
+        if verbose:
+            log.warning(f"Primary synthesizer failed after retries ({e}); falling back to Groq.")
+        fallback_synthesizer = autogen.AssistantAgent(
+            name="Synthesizer_Fallback",
+            system_message=synthesizer.system_message,
+            llm_config=make_llm_config(SYNTHESIZER_FALLBACK["provider"], SYNTHESIZER_FALLBACK["model"]),
+        )
+        user_proxy.initiate_chat(
+            fallback_synthesizer,
+            message=f"Original question: {question}\n\nFull discussion:\n{transcript}",
+            max_turns=1,
+            silent=True,
+        )
+        final_answer = fallback_synthesizer.last_message()["content"]
 
     memory.save_exchange(question, final_answer)
     return final_answer
