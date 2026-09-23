@@ -3,6 +3,10 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+import re
+
+import time
+import random
 
 import autogen
 
@@ -19,6 +23,21 @@ def check_env():
             f"Missing required environment variable(s): {', '.join(missing)}. "
             f"Set them before calling ask() -- see the module docstring for how."
         )
+
+def with_retry(fn, max_attempts=4, base_delay=2):
+    """Retry a callable on transient provider errors (503/overload), with
+    exponential backoff + jitter. Re-raises immediately on anything else."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fn()
+        except Exception as e:
+            transient = "503" in str(e) or "UNAVAILABLE" in str(e) or "overloaded" in str(e).lower()
+            if not transient or attempt == max_attempts:
+                raise
+            delay = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 1)
+            log.warning(f"Transient error (attempt {attempt}/{max_attempts}): {e}. "
+                        f"Retrying in {delay:.1f}s...")
+            time.sleep(delay)    
 
 def make_llm_config(provider: str, model: str, max_tokens: int = 600) -> dict:
     if provider == "groq":
@@ -42,34 +61,24 @@ GROQ_SMALL_MODEL = "openai/gpt-oss-20b"
 GOOGLE_MODEL = "gemini-3.6-flash"
 
 MEETING_STYLE = (
-    "\n\nYou're in a live discussion with other experts, not writing a report. "
-    "Speak like you're actually in the room: address colleagues by name when "
-    "responding to them ('Building on what Backend said...', 'I'd push back on "
-    "that a bit, DBMS...'), and react to what was just said instead of restating "
-    "the whole question from scratch. You can go into real depth -- explain your "
-    "reasoning, walk through a trade-off, include a short code example if it "
-    "helps -- but stay conversational in tone rather than switching into "
-    "formal report mode (avoid markdown tables and section headers here; save "
-    "that structure for the final summary). Roughly one solid paragraph per "
-    "turn is the right length -- enough to actually say something substantive, "
-    "not so much that it reads like documentation."
+    "\n\n=== CONVERSATION FORMAT RULES (follow these exactly) ===\n"
+    "You're a trusted expert someone is genuinely asking for help, not writing "
+    "a report. Answer warmly and directly, like a knowledgeable colleague. If "
+    "someone already spoke, react to what they said by name.\n\n"
+    "STRICT FORMATTING RULES:\n"
+    "- Do NOT use markdown headers (##, ###).\n"
+    "- Do NOT use markdown tables.\n"
+    "- Write in plain conversational paragraphs, like you're talking, not "
+    "documenting. A short code snippet is fine if truly needed.\n\n"
+    "STOPPING RULE:\n"
+    "Most questions only need ONE or TWO experts. If the question is already "
+    "fully and correctly answered by what's been said so far, you MUST end "
+    "your entire message with the single word ALL_SET on its own final line. "
+    "This is not optional -- check before you finish: 'has this been "
+    "answered? If yes, my last line must be ALL_SET.'"
 )
 
 EXPERT_CONFIG = {
-    "Moderator": {
-        "provider": "groq", "model": GROQ_SMALL_MODEL,
-        "system_message": (
-            "You are chairing a roundtable discussion between software experts. "
-            "Open the meeting by briefly framing the question in one or two sentences "
-            "and inviting the most relevant expert to start. During the discussion, "
-            "if things stall or go in circles, redirect with a short prompt "
-            "('Anyone want to weigh in on the caching side?'). When the discussion "
-            "has covered the key angles, close it with: 'Good discussion -- let's "
-            "wrap up there.' Keep everything you say brief and natural, like a real "
-            "meeting chair, not a formal moderator script."
-        ),
-        "description": "Opens the meeting, keeps discussion on track, and closes it when the key angles are covered.",
-    },
     "Frontend_Expert": {
         "provider": "groq", "model": GROQ_MODEL,
         "system_message": (
@@ -124,7 +133,7 @@ EXPERT_CONFIG = {
 MANAGER_MODEL = {"provider": "groq", "model": GROQ_SMALL_MODEL}
 SYNTHESIZER_MODEL = {"provider": "google", "model": GOOGLE_MODEL}
 
-MAX_DEBATE_ROUNDS = 6  # hard cap so a hand-off loop can't run forever
+MAX_DEBATE_ROUNDS = 4  # hard cap so a hand-off loop can't run forever
 
 class MemoryStore:
     def __init__(self, path: str = "memory_store.json"):
@@ -184,16 +193,6 @@ def build_synthesizer() -> autogen.AssistantAgent:
         llm_config=make_llm_config(SYNTHESIZER_MODEL["provider"], SYNTHESIZER_MODEL["model"]),
     )
 
-def meeting_speaker_selection(last_speaker, groupchat):
-    """Moderator always opens and closes; the manager LLM picks freely in between."""
-    if len(groupchat.messages) <= 1:
-        moderator = groupchat.agent_by_name("Moderator")
-        return moderator if moderator else "auto"
-    if len(groupchat.messages) >= MAX_DEBATE_ROUNDS - 1:
-        moderator = groupchat.agent_by_name("Moderator")
-        return moderator if moderator else "auto"
-    return "auto"
-
 def ask(question: str, memory: MemoryStore, verbose: bool = True) -> str:
     check_env()
 
@@ -201,55 +200,60 @@ def ask(question: str, memory: MemoryStore, verbose: bool = True) -> str:
     user_proxy = build_user_proxy()
     synthesizer = build_synthesizer()
 
-    context = memory.load_recent_context()
-    opening_message = f"{context}\n\nNew question: {question}" if context else question
-
     groupchat = autogen.GroupChat(
         agents=list(expert_agents.values()) + [user_proxy],
         messages=[],
         max_round=MAX_DEBATE_ROUNDS,
-        speaker_selection_method=meeting_speaker_selection,  # manager LLM decides who speaks next each turn
+        speaker_selection_method="auto",
+        allow_repeat_speaker=False,
     )
     manager = autogen.GroupChatManager(
         groupchat=groupchat,
         llm_config=make_llm_config(MANAGER_MODEL["provider"], MANAGER_MODEL["model"]),
+        is_termination_msg=lambda msg: "all_set" in msg.get("content", "").lower(),
     )
+
+    context = memory.load_recent_context()
+    if context:
+        # Injected directly into history so the model sees it, without it ever being printed to the console -- printing only happens on actual send/receive between agents, not on raw list entries.
+        groupchat.messages.append({"role": "user", "name": "User", "content": context})
 
     if verbose:
         log.info("Starting expert discussion (visible below)...")
 
     # silent=False (default): the user watches the whole discussion happen
     # live, message by message, as it's printed to the console/notebook.
-    user_proxy.initiate_chat(manager, message=opening_message)
+    with_retry(lambda: user_proxy.initiate_chat(manager, message=question))
 
     transcript = "\n\n".join(
-        f"{m['name']}: {m['content']}" for m in groupchat.messages if m.get("content")
+        f"{m['name']}: {re.sub(r'(?i)all_set', '', m['content']).strip()}"
+        for m in groupchat.messages if m.get("content")
     )
 
     if verbose:
         log.info("Discussion finished -- synthesizing final answer...")
 
-    user_proxy.initiate_chat(
+    with_retry(lambda: user_proxy.initiate_chat(
         synthesizer,
         message=f"Original question: {question}\n\nFull discussion:\n{transcript}",
         max_turns=1,
         silent=True,  # only the final answer needs to print, not this one call
-    )
+    ))
     final_answer = synthesizer.last_message()["content"]
 
     memory.save_exchange(question, final_answer)
     return final_answer
 
-if __name__ == "__main__":
-    demo_question = (
-        "How should we design a scalable e-commerce app for 100,000 concurrent users, "
-        "with search, cart, checkout, and order history? What frontend, backend, and "
-        "database architecture would you use, and what trade-offs matter most?"
-    )
-    memory = MemoryStore()
-    print(f"Running demo question:\n{demo_question}\n")
-    result = ask(demo_question, memory)
-    print("\n" + "=" * 60)
-    print("FINAL ANSWER")
-    print("=" * 60)
-    print(result)
+# if __name__ == "__main__":
+#     demo_question = (
+#         "How should we design a scalable e-commerce app for 100,000 concurrent users, "
+#         "with search, cart, checkout, and order history? What frontend, backend, and "
+#         "database architecture would you use, and what trade-offs matter most?"
+#     )
+#     memory = MemoryStore()
+#     print(f"Running demo question:\n{demo_question}\n")
+#     result = ask(demo_question, memory)
+#     print("\n" + "=" * 60)
+#     print("FINAL ANSWER")
+#     print("=" * 60)
+#     print(result)

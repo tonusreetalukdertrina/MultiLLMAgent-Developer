@@ -2,3 +2,4 @@ ag2[groq,gemini]
 groq
 google-generativeai
 vertexai
+pillow
