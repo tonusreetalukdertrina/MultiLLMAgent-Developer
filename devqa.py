@@ -47,6 +47,9 @@ def with_retry(fn, max_attempts=4, base_delay=2):
             time.sleep(delay)    
 
 def make_llm_config(provider: str, model: str, max_tokens: int = 600) -> dict:
+    if "ornith" in model.lower():
+        max_tokens = 4000
+
     if provider == "groq":
         return {"config_list": [{
             "model": model,
@@ -136,7 +139,7 @@ EXPERT_CONFIG = {
         "description": "Answers questions about database schema, indexing, query optimization, and data modeling.",
     },
     "Research_Expert": {
-        "provider": "groq", "model": GROQ_MODEL,
+        "provider": "custom", "model": CUSTOM_MODEL,
         "system_message": (
             "You are the R&D Expert: emerging techniques, trade-offs between approaches, "
             "recent developments in software engineering. Flag clearly when something is "
