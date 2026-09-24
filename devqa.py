@@ -18,7 +18,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("devqa")
 
-REQUIRED_ENV_VARS = ["GROQ_API_KEY", "GOOGLE_API_KEY", "CEREBRAS_API_KEY", "CUSTOM_API_KEY", "CUSTOM_BASE_URL"]
+# REQUIRED_ENV_VARS = ["GROQ_API_KEY", "GOOGLE_API_KEY", "CEREBRAS_API_KEY", "CUSTOM_API_KEY", "CUSTOM_BASE_URL"]
+REQUIRED_ENV_VARS = ["GROQ_API_KEY", "GOOGLE_API_KEY", "CUSTOM_API_KEY", "CUSTOM_BASE_URL"]
 
 
 def check_env():
@@ -64,14 +65,14 @@ def make_llm_config(provider: str, model: str, max_tokens: int = 600) -> dict:
             "api_type": "google",
             "max_tokens": max_tokens,
         }]}
-    if provider == "cerebras":
-        return {"config_list": [{
-            "model": model,
-            "api_key": os.environ["CEREBRAS_API_KEY"],
-            "base_url": "https://api.cerebras.ai/v1",
-            "api_type": "openai",
-            "max_tokens": max_tokens,
-        }]}
+    # if provider == "cerebras":
+    #     return {"config_list": [{
+    #         "model": model,
+    #         "api_key": os.environ["CEREBRAS_API_KEY"],
+    #         "base_url": "https://api.cerebras.ai/v1",
+    #         "api_type": "openai",
+    #         "max_tokens": max_tokens,
+    #     }]}
     if provider == "custom":
         return {"config_list": [{
             "model": model,
@@ -85,9 +86,8 @@ def make_llm_config(provider: str, model: str, max_tokens: int = 600) -> dict:
 GROQ_MODEL = "openai/gpt-oss-120b"
 GROQ_SMALL_MODEL = "openai/gpt-oss-20b"
 GOOGLE_MODEL = "gemini-3.6-flash"
-CEREBRAS_MODEL = "gpt-oss-120b" 
-CUSTOM_MODEL = "Ornith-1.5-35B-A3B-APEX-MTP-Quality"        # from Step 2's output
-# CUSTOM_MODEL_ALT = "your-other-available-model"  # uncomment if you want a second option
+# CEREBRAS_MODEL = "gpt-oss-120b" 
+CUSTOM_MODEL = "Ornith-1.5-35B-A3B-APEX-MTP-Quality"        
 
 MEETING_STYLE = (
     "\n\n=== CONVERSATION FORMAT RULES (follow these exactly) ===\n"
@@ -105,6 +105,16 @@ MEETING_STYLE = (
     "your entire message with the single word ALL_SET on its own final line. "
     "This is not optional -- check before you finish: 'has this been "
     "answered? If yes, my last line must be ALL_SET.'"
+    "\n\nVary how you open each turn -- don't default to the same opening phrase "
+    "every time (avoid always starting with something like 'You've got a solid "
+    "foundation' or 'Happy to dig into this'). Jump into the substance naturally, "
+    "the way people do mid-conversation."
+    "\n\nBefore you speak, check what's already been said. If a previous expert "
+    "already covered a point in real detail, do NOT repeat it in your own words "
+    "or re-explain it with your own code example -- either build on it with "
+    "something genuinely new, disagree with a specific reason, or if you have "
+    "nothing to add beyond what's already there, say so briefly and end with "
+    "ALL_SET rather than restating the same material."
 )
 
 EXPERT_CONFIG = {
@@ -130,7 +140,7 @@ EXPERT_CONFIG = {
         "description": "Answers questions about server-side architecture, APIs, auth, and backend performance.",
     },
     "DBMS_Expert": {
-        "provider": "groq", "model": GROQ_MODEL,
+        "provider": "custom", "model": CUSTOM_MODEL,
         "system_message": (
             "You are the DBMS Expert: schema design, indexing, query optimization, "
             "normalization, transactions, scaling strategies. Weigh in whenever data "

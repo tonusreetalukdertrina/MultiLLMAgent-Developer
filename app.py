@@ -1,5 +1,6 @@
 import streamlit as st
 from devqa import ask, MemoryStore, check_env
+import time
 
 st.set_page_config(page_title="Dev Q&A -- Expert Panel", page_icon="🧑‍💻", layout="centered")
 
@@ -54,12 +55,18 @@ if question:
 
     # Render the live discussion as a sequence of chat bubbles, one per expert turn, so the audience can see the actual back-and-forth -- not just the end result.
     st.markdown("### 💬 Expert Discussion")
+    placeholder = st.empty()
     for turn in turns:
         avatar = AVATARS.get(turn["name"], "🗣️")
         display_name = turn["name"].replace("_", " ")
+        with placeholder.container():
+            pass  # keeps layout stable while the next message "arrives"
         with st.chat_message(display_name, avatar=avatar):
-            st.markdown(f"**{display_name}**")
-            st.write(turn["content"])
+            msg_box = st.empty()
+            msg_box.markdown(f"**{display_name}** *is typing...*")
+            time.sleep(0.6)
+            msg_box.markdown(f"**{display_name}**\n\n{turn['content']}")
+        time.sleep(0.4)
 
     st.markdown("### ✅ Final Answer")
     with st.container(border=True):
