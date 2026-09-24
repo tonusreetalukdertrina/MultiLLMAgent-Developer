@@ -223,7 +223,7 @@ def build_synthesizer() -> autogen.AssistantAgent:
         llm_config=make_llm_config(SYNTHESIZER_MODEL["provider"], SYNTHESIZER_MODEL["model"]),
     )
 
-def ask(question: str, memory: MemoryStore, verbose: bool = True) -> str:
+def ask(question: str, memory: MemoryStore, verbose: bool = True, return_turns: bool = False):
     check_env()
 
     expert_agents = build_expert_agents()
@@ -260,6 +260,11 @@ def ask(question: str, memory: MemoryStore, verbose: bool = True) -> str:
         for m in groupchat.messages if m.get("content")
     )
 
+    turns = [
+        {"name": m["name"], "content": re.sub(r'(?i)all_set', '', m['content']).strip()}
+        for m in groupchat.messages if m.get("content") and m["name"] != "User"
+    ]
+
     if verbose:
         log.info("Discussion finished -- synthesizing final answer...")
 
@@ -288,6 +293,8 @@ def ask(question: str, memory: MemoryStore, verbose: bool = True) -> str:
         final_answer = fallback_synthesizer.last_message()["content"]
 
     memory.save_exchange(question, final_answer)
+    if return_turns:
+        return final_answer, turns
     return final_answer
 
 # if __name__ == "__main__":
