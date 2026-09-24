@@ -246,7 +246,7 @@ def build_synthesizer() -> autogen.AssistantAgent:
             "disagreed if it matters, but end with a clear recommendation -- don't just "
             "summarize, actually decide."
         ),
-        llm_config=make_llm_config(SYNTHESIZER_MODEL["provider"], SYNTHESIZER_MODEL["model"]),
+        llm_config=make_llm_config(SYNTHESIZER_MODEL["provider"], SYNTHESIZER_MODEL["model"], max_tokens=2500),
     )
 
 def ask(question: str, memory: MemoryStore, verbose: bool = True, return_turns: bool = False):
@@ -308,7 +308,7 @@ def ask(question: str, memory: MemoryStore, verbose: bool = True, return_turns: 
         fallback_synthesizer = autogen.AssistantAgent(
             name="Synthesizer_Fallback",
             system_message=synthesizer.system_message,
-            llm_config=make_llm_config(SYNTHESIZER_FALLBACK["provider"], SYNTHESIZER_FALLBACK["model"]),
+            llm_config=make_llm_config(SYNTHESIZER_FALLBACK["provider"], SYNTHESIZER_FALLBACK["model"], max_tokens=2500),
         )
         user_proxy.initiate_chat(
             fallback_synthesizer,
