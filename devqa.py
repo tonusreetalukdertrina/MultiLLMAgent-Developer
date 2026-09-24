@@ -7,6 +7,10 @@ import re
 
 import time
 import random
+import db
+
+from dotenv import load_dotenv
+load_dotenv()
 
 import autogen
 
@@ -192,29 +196,18 @@ SYNTHESIZER_FALLBACK = {"provider": "groq", "model": GROQ_MODEL}
 MAX_DEBATE_ROUNDS = 8  # hard cap so a hand-off loop can't run forever
 
 class MemoryStore:
-    def __init__(self, path: str = "memory_store.json"):
-        self.path = Path(path)
-        if not self.path.exists():
-            self.path.write_text("[]")
+    """Per-user conversation memory, backed by SQLite. Every read/write is
+    scoped to one user_id -- this is what makes conversations private."""
 
-    def save_exchange(self, question: str, final_answer: str):
-        history = json.loads(self.path.read_text())
-        history.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "question": question,
-            "final_answer": final_answer,
-        })
-        self.path.write_text(json.dumps(history, indent=2))
+    def __init__(self, user_id: int):
+        self.user_id = user_id
+        db.init_db()
+
+    def save_exchange(self, question: str, final_answer: str, turns: list = None):
+        db.save_conversation(self.user_id, question, final_answer, turns or [])
 
     def load_recent_context(self, n: int = 3) -> str:
-        history = json.loads(self.path.read_text())
-        if not history:
-            return ""
-        recent = history[-n:]
-        lines = ["Context from earlier conversations (for reference only):"]
-        for item in recent:
-            lines.append(f"- Q: {item['question']}\n  A: {item['final_answer'][:300]}")
-        return "\n".join(lines)
+        return db.get_recent_context(self.user_id, n)
 
 def build_expert_agents() -> dict:
     return {
@@ -318,7 +311,7 @@ def ask(question: str, memory: MemoryStore, verbose: bool = True, return_turns: 
         )
         final_answer = fallback_synthesizer.last_message()["content"]
 
-    memory.save_exchange(question, final_answer)
+    memory.save_exchange(question, final_answer, turns)
     if return_turns:
         return final_answer, turns
     return final_answer

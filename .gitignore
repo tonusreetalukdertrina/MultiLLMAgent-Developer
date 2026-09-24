@@ -1,0 +1,5 @@
+.env
+app.db
+memory_store.json
+venv/
+__pycache__/
