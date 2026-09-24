@@ -1,6 +1,6 @@
+import time
 import streamlit as st
 from devqa import ask, MemoryStore, check_env
-import time
 
 st.set_page_config(page_title="Dev Q&A -- Expert Panel", page_icon="🧑‍💻", layout="centered")
 
@@ -10,8 +10,9 @@ AVATARS = {
     "DBMS_Expert": "🗄️",
     "Research_Expert": "🔬",
     "General_Expert": "🧭",
-    "Synthesizer": "✅",
 }
+FINAL_AVATAR = "✅"
+USER_AVATAR = "🙋"
 
 st.title("🧑‍💻 Multi-Agent Developer Q&A")
 st.caption(
@@ -20,7 +21,6 @@ st.caption(
     "then a final answer is synthesized from the discussion."
 )
 
-# Fail fast with a clear message if API keys aren't set in this environment, rather than letting the first question crash confusingly mid-demo.
 try:
     check_env()
 except EnvironmentError as e:
@@ -29,45 +29,71 @@ except EnvironmentError as e:
 
 if "memory" not in st.session_state:
     st.session_state.memory = MemoryStore()
+if "history" not in st.session_state:
+    st.session_state.history = []  # list of {"question": str, "turns": [...], "final_answer": str}
 
-# A few ready-to-click examples so a live demo never stalls on someone typing a question from scratch in front of an audience.
-st.markdown("**Try an example, or type your own question below:**")
-example_cols = st.columns(3)
-examples = [
-    "Should we use REST or GraphQL for this app?",
-    "How should we design a scalable e-commerce checkout flow?",
-    "What's the best way to cache database queries?",
-]
-clicked_example = None
-for col, ex in zip(example_cols, examples):
-    if col.button(ex, use_container_width=True):
-        clicked_example = ex
 
-question = st.chat_input("Ask a development question...")
-if clicked_example:
-    question = clicked_example
+def render_expert_turn(turn, animate=False):
+    avatar = AVATARS.get(turn["name"], "🗣️")
+    display_name = turn["name"].replace("_", " ")
+    with st.chat_message(display_name, avatar=avatar):
+        box = st.empty()
+        if animate:
+            box.markdown(f"**{display_name}** *is typing...*")
+            time.sleep(0.5)
+        box.markdown(f"**{display_name}**\n\n{turn['content']}")
+    if animate:
+        time.sleep(0.3)
 
+
+def render_final_answer(final_answer, animate=False):
+    with st.chat_message("Final Answer", avatar=FINAL_AVATAR):
+        box = st.empty()
+        if animate:
+            box.markdown("**Final Answer** *is typing...*")
+            time.sleep(0.5)
+        box.markdown(f"**Final Answer**\n\n{final_answer}")
+
+
+# ---- Render every past exchange as part of one continuous chat ----
+for exchange in st.session_state.history:
+    st.chat_message("You", avatar=USER_AVATAR).write(exchange["question"])
+    for turn in exchange["turns"]:
+        render_expert_turn(turn, animate=False)
+    render_final_answer(exchange["final_answer"], animate=False)
+
+# Only show example buttons before the conversation has started -- once
+# there's history, they'd just clutter a real chat thread.
+question = None
+if not st.session_state.history:
+    st.markdown("**Try an example, or type your own question below:**")
+    cols = st.columns(3)
+    examples = [
+        "Should we use REST or GraphQL for this app, and why?",
+        "Should authentication use server-side sessions or JWT tokens?",
+        "How should we design a scalable e-commerce checkout flow?",
+    ]
+    for col, ex in zip(cols, examples):
+        if col.button(ex, use_container_width=True):
+            question = ex
+
+typed = st.chat_input("Ask a development question...")
+if typed:
+    question = typed
+
+# ---- Handle a new question: show it immediately, then animate the reply ----
 if question:
-    st.chat_message("user", avatar="🙋").write(question)
+    st.chat_message("You", avatar=USER_AVATAR).write(question)
 
     with st.spinner("Experts are discussing your question..."):
         final_answer, turns = ask(question, st.session_state.memory, verbose=False, return_turns=True)
 
-    # Render the live discussion as a sequence of chat bubbles, one per expert turn, so the audience can see the actual back-and-forth -- not just the end result.
-    st.markdown("### 💬 Expert Discussion")
-    placeholder = st.empty()
     for turn in turns:
-        avatar = AVATARS.get(turn["name"], "🗣️")
-        display_name = turn["name"].replace("_", " ")
-        with placeholder.container():
-            pass  # keeps layout stable while the next message "arrives"
-        with st.chat_message(display_name, avatar=avatar):
-            msg_box = st.empty()
-            msg_box.markdown(f"**{display_name}** *is typing...*")
-            time.sleep(0.6)
-            msg_box.markdown(f"**{display_name}**\n\n{turn['content']}")
-        time.sleep(0.4)
+        render_expert_turn(turn, animate=True)
+    render_final_answer(final_answer, animate=True)
 
-    st.markdown("### ✅ Final Answer")
-    with st.container(border=True):
-        st.markdown(final_answer)
+    st.session_state.history.append({
+        "question": question,
+        "turns": turns,
+        "final_answer": final_answer,
+    })

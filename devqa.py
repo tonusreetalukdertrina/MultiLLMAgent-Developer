@@ -115,6 +115,22 @@ MEETING_STYLE = (
     "something genuinely new, disagree with a specific reason, or if you have "
     "nothing to add beyond what's already there, say so briefly and end with "
     "ALL_SET rather than restating the same material."
+    "\n\nA real conversation has follow-ups, not just one statement per person. "
+    "Follow this natural pattern where it fits: "
+    "(1) if you raise a question or dependency that another expert should confirm "
+    "or answer, name them directly and wait; "
+    "(2) if you're answering something a previous expert raised, say so explicitly "
+    "('To answer Backend's question about indexing...'); "
+    "(3) if someone just answered a question YOU raised earlier, it's natural to "
+    "speak again and close the loop -- confirm it works, or push back with a "
+    "specific reason. You are allowed to speak more than once in a conversation. "
+    "(4) Frontend_Expert specifically should watch for API shape, response format, "
+    "or auth-flow decisions other experts make, since those directly affect what "
+    "the UI has to handle -- speak up if a decision changes what the frontend needs."
+    "\n\nIf you're speaking again after already contributing earlier in this "
+    "conversation, briefly acknowledge it feels like a continuation (e.g. "
+    "'Coming back to this...', 'Following up on my earlier point...') rather "
+    "than restating your role from scratch."
 )
 
 EXPERT_CONFIG = {
@@ -173,7 +189,7 @@ MANAGER_MODEL = {"provider": "groq", "model": GROQ_SMALL_MODEL}
 SYNTHESIZER_MODEL = {"provider": "google", "model": GOOGLE_MODEL}
 SYNTHESIZER_FALLBACK = {"provider": "groq", "model": GROQ_MODEL}
 
-MAX_DEBATE_ROUNDS = 4  # hard cap so a hand-off loop can't run forever
+MAX_DEBATE_ROUNDS = 8  # hard cap so a hand-off loop can't run forever
 
 class MemoryStore:
     def __init__(self, path: str = "memory_store.json"):
