@@ -93,6 +93,7 @@ except EnvironmentError as e:
     st.stop()
 
 # Sidebar
+ with st.sidebar:
     st.markdown(f"### 👤 {username}")
     if st.button("Log Out", use_container_width=True):
         token = st.query_params.get("session")
