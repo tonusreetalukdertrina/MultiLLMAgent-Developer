@@ -196,18 +196,16 @@ SYNTHESIZER_FALLBACK = {"provider": "groq", "model": GROQ_MODEL}
 MAX_DEBATE_ROUNDS = 8  # hard cap so a hand-off loop can't run forever
 
 class MemoryStore:
-    """Per-user conversation memory, backed by SQLite. Every read/write is
-    scoped to one user_id -- this is what makes conversations private."""
-
-    def __init__(self, user_id: int):
-        self.user_id = user_id
+    """Conversation memory scoped to ONE chat thread. Starting a new chat means starting with no carried-over context -- exactly like a real 'New Chat' button in any chat app."""
+    def __init__(self, chat_id: int):
+        self.chat_id = chat_id
         db.init_db()
 
     def save_exchange(self, question: str, final_answer: str, turns: list = None):
-        db.save_conversation(self.user_id, question, final_answer, turns or [])
+        db.save_conversation(self.chat_id, question, final_answer, turns or [])
 
     def load_recent_context(self, n: int = 3) -> str:
-        return db.get_recent_context(self.user_id, n)
+        return db.get_recent_context(self.chat_id, n)
 
 def build_expert_agents() -> dict:
     return {
