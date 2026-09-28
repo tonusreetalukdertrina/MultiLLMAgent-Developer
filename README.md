@@ -9,7 +9,7 @@ A web app where a panel of AI experts (Frontend, Backend, Database, Research, Ge
 - API keys for:
   - **Groq** — free at [console.groq.com/keys](https://console.groq.com/keys)
   - **Google Gemini** — free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-  - **Google Gemini** — free at [betopia.ai](https://betopia.ai/)
+  - **Custom Model Provider** — free at [betopia.ai](https://betopia.ai/)
 
 ## How to run it
 
@@ -36,6 +36,7 @@ Create a file named `.env` in the project folder with this content:
 GROQ_API_KEY=your_groq_key_here
 GOOGLE_API_KEY=your_google_key_here
 CUSTOM_API_KEY=your_custom_key_here
+CUSTOM_BASE_URL=your_custom_model_base_url
 ```
 
 ### 4. Start the app
